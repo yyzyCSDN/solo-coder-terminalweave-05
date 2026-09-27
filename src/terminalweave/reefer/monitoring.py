@@ -58,7 +58,9 @@ class ReeferMonitor:
     def ingest(self, reading: ReeferReading) -> AlarmState:
         alarm = self.alarm
         if alarm.last_reading and reading.at <= alarm.last_reading.at:
-            raise ValidationError('readings must arrive in strictly increasing time order')
+            # Late or duplicate readings are inert: confirmed states and
+            # any dispositions already raised must not be re-decided.
+            return alarm.state
         outside = self._outside(reading)
         clear_band = self._inside_clear_band(reading)
         if alarm.state == AlarmState.NORMAL:

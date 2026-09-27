@@ -1,4 +1,5 @@
 from __future__ import annotations
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from terminalweave.core.clock import ensure_utc
@@ -26,10 +27,11 @@ class TelemetryBuffer:
 
     def ingest(self, point: TelemetryPoint) -> None:
         series = self.points.setdefault(point.container_id, [])
-        if series and point.at <= series[-1].at:
-            raise ValidationError('telemetry time must increase')
-        series.append(point)
-        cutoff = point.at - self.retention
+        idx = bisect_left(series, point.at, key=lambda p: p.at)
+        if idx < len(series) and series[idx].at == point.at:
+            return
+        series.insert(idx, point)
+        cutoff = series[-1].at - self.retention
         while series and series[0].at < cutoff:
             series.pop(0)
 
