@@ -1,4 +1,5 @@
 from __future__ import annotations
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from terminalweave.core.clock import ensure_utc
@@ -17,6 +18,13 @@ class TelemetryPoint:
         object.__setattr__(self, 'at', ensure_utc(self.at))
 
 class TelemetryBuffer:
+    """Per-container telemetry kept in event-time order.
+
+    Points may arrive out of order and are inserted by their event time.
+    An exact duplicate is ignored while a conflicting point for an event
+    time that is already recorded is rejected, so late or repeated data
+    can never rewrite an established sample.
+    """
 
     def __init__(self, retention: timedelta=timedelta(days=7)):
         if retention.total_seconds() <= 0:
@@ -26,10 +34,13 @@ class TelemetryBuffer:
 
     def ingest(self, point: TelemetryPoint) -> None:
         series = self.points.setdefault(point.container_id, [])
-        if series and point.at <= series[-1].at:
-            raise ValidationError('telemetry time must increase')
-        series.append(point)
-        cutoff = point.at - self.retention
+        i = bisect_left(series, point.at, key=lambda p: p.at)
+        if i < len(series) and series[i].at == point.at:
+            if series[i] == point:
+                return
+            raise ValidationError('conflicting telemetry at the same event time')
+        series.insert(i, point)
+        cutoff = series[-1].at - self.retention
         while series and series[0].at < cutoff:
             series.pop(0)
 

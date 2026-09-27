@@ -1,4 +1,5 @@
 from __future__ import annotations
+from bisect import insort
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from terminalweave.core.clock import ensure_utc
@@ -15,6 +16,26 @@ class DefrostEvent:
         object.__setattr__(self, 'end', ensure_utc(self.end))
         if self.end <= self.start or self.temperature_rise_c < 0:
             raise ValidationError('invalid defrost event')
+
+class DefrostTimeline:
+    """Defrost windows registered for one container, queried by event time.
+
+    Registration is idempotent: re-registering an identical event is a
+    no-op, so replayed controller messages cannot duplicate a window.
+    """
+
+    def __init__(self):
+        self.events: list[DefrostEvent] = []
+
+    def register(self, event: DefrostEvent) -> bool:
+        if event in self.events:
+            return False
+        insort(self.events, event, key=lambda e: (e.start, e.end))
+        return True
+
+    def covers(self, at: datetime) -> bool:
+        at = ensure_utc(at)
+        return any(e.start <= at < e.end for e in self.events)
 
 class DefrostClassifier:
 
